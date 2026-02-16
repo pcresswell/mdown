@@ -7,3 +7,5 @@ xcuserdata/
 DerivedData/
 .swiftpm/
 Package.resolved
+.build-number
+generate_icon.swift

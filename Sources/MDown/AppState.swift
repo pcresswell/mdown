@@ -75,6 +75,64 @@ final class AppState: ObservableObject {
         baseFontSize = Self.fontSizeDefault
     }
 
+    // MARK: - File Watching
+
+    private var fileWatcherSource: DispatchSourceFileSystemObject?
+    private var fileDescriptor: Int32 = -1
+
+    private func stopWatching() {
+        fileWatcherSource?.cancel()
+        fileWatcherSource = nil
+        if fileDescriptor >= 0 {
+            close(fileDescriptor)
+            fileDescriptor = -1
+        }
+    }
+
+    private func startWatching(url: URL) {
+        stopWatching()
+
+        fileDescriptor = Darwin.open(url.path, O_EVTONLY)
+        guard fileDescriptor >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fileDescriptor,
+            eventMask: [.write, .rename, .attrib],
+            queue: .main
+        )
+
+        source.setEventHandler { [weak self] in
+            guard let self, let currentURL = self.currentFileURL else { return }
+            // Small delay to let the write finish
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.reloadFile()
+                // Re-watch in case the file was replaced (editors often write to a temp then rename)
+                self.startWatching(url: currentURL)
+            }
+        }
+
+        source.setCancelHandler { [fd = fileDescriptor] in
+            if fd >= 0 { Darwin.close(fd) }
+        }
+        // We'll manage close in cancel handler, so clear our tracking
+        fileDescriptor = -1
+
+        source.resume()
+        fileWatcherSource = source
+    }
+
+    private func reloadFile() {
+        guard let url = currentFileURL else { return }
+        do {
+            let content = try String(contentsOf: url, encoding: .utf8)
+            if content != markdownContent {
+                markdownContent = content
+            }
+        } catch {
+            // File may be mid-write; ignore transient errors
+        }
+    }
+
     // MARK: - File Loading
 
     func loadFile(url: URL) {
@@ -83,9 +141,15 @@ final class AppState: ObservableObject {
             markdownContent = content
             currentFileURL = url
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            startWatching(url: url)
         } catch {
             markdownContent = "**Error reading file:** \(error.localizedDescription)"
             currentFileURL = nil
+            stopWatching()
         }
+    }
+
+    deinit {
+        stopWatching()
     }
 }

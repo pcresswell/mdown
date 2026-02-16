@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject private var appState: AppState
+    @StateObject private var appState = AppState()
     @State private var showThemePicker = false
 
     var body: some View {
@@ -30,5 +30,16 @@ struct ContentView: View {
             }
         }
         .navigationTitle(appState.windowTitle)
+        .environmentObject(appState)
+        .focusedObject(appState)
+        .onOpenURL { url in
+            appState.loadFile(url: url)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        .onAppear {
+            if let url = PendingFileManager.shared.claimURL() {
+                appState.loadFile(url: url)
+            }
+        }
     }
 }
