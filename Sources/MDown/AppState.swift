@@ -16,26 +16,30 @@ final class AppState: ObservableObject {
     // MARK: - Published State
 
     @Published var markdownContent: String?
+    @Published private(set) var contentChunks: [MarkdownChunk] = []
     @Published var currentFileURL: URL?
     @Published var baseFontSize: CGFloat {
-        didSet { UserDefaults.standard.set(Double(baseFontSize), forKey: Self.fontSizeKey) }
+        didSet {
+            UserDefaults.standard.set(Double(baseFontSize), forKey: Self.fontSizeKey)
+            rebuildTheme()
+        }
     }
     @Published var selectedThemeID: String {
-        didSet { UserDefaults.standard.set(selectedThemeID, forKey: Self.themeKey) }
+        didSet {
+            UserDefaults.standard.set(selectedThemeID, forKey: Self.themeKey)
+            rebuildTheme()
+        }
     }
     @Published var fullWidth: Bool {
         didSet { UserDefaults.standard.set(fullWidth, forKey: Self.fullWidthKey) }
     }
+    @Published private(set) var activeTheme: Theme
 
     // MARK: - Computed
 
     var currentThemeDefinition: ThemeDefinition {
         ThemeDefinitions.all.first { $0.id == selectedThemeID }
             ?? ThemeDefinitions.defaultLight
-    }
-
-    var activeTheme: Theme {
-        MDownTheme.build(from: currentThemeDefinition, fontSize: baseFontSize)
     }
 
     var windowBackground: Color {
@@ -53,12 +57,23 @@ final class AppState: ObservableObject {
 
     init() {
         let savedFontSize = UserDefaults.standard.double(forKey: Self.fontSizeKey)
-        self.baseFontSize = savedFontSize > 0 ? CGFloat(savedFontSize) : Self.fontSizeDefault
+        let fontSize = savedFontSize > 0 ? CGFloat(savedFontSize) : Self.fontSizeDefault
+        self.baseFontSize = fontSize
 
         let savedTheme = UserDefaults.standard.string(forKey: Self.themeKey)
-        self.selectedThemeID = savedTheme ?? ThemeDefinitions.defaultLight.id
+        let themeID = savedTheme ?? ThemeDefinitions.defaultLight.id
+        self.selectedThemeID = themeID
 
         self.fullWidth = UserDefaults.standard.bool(forKey: Self.fullWidthKey)
+
+        let def = ThemeDefinitions.all.first { $0.id == themeID } ?? ThemeDefinitions.defaultLight
+        self.activeTheme = MDownTheme.build(from: def, fontSize: fontSize)
+    }
+
+    // MARK: - Theme
+
+    private func rebuildTheme() {
+        activeTheme = MDownTheme.build(from: currentThemeDefinition, fontSize: baseFontSize)
     }
 
     // MARK: - Font Size
@@ -73,6 +88,13 @@ final class AppState: ObservableObject {
 
     func resetFontSize() {
         baseFontSize = Self.fontSizeDefault
+    }
+
+    // MARK: - Content
+
+    private func setContent(_ content: String) {
+        markdownContent = content
+        contentChunks = MarkdownChunker.chunk(content)
     }
 
     // MARK: - File Watching
@@ -123,13 +145,20 @@ final class AppState: ObservableObject {
 
     private func reloadFile() {
         guard let url = currentFileURL else { return }
-        do {
-            let content = try String(contentsOf: url, encoding: .utf8)
-            if content != markdownContent {
-                markdownContent = content
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                let content = try String(contentsOf: url, encoding: .utf8)
+                let chunks = MarkdownChunker.chunk(content)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if content != self.markdownContent {
+                        self.markdownContent = content
+                        self.contentChunks = chunks
+                    }
+                }
+            } catch {
+                // File may be mid-write; ignore transient errors
             }
-        } catch {
-            // File may be mid-write; ignore transient errors
         }
     }
 
@@ -138,12 +167,12 @@ final class AppState: ObservableObject {
     func loadFile(url: URL) {
         do {
             let content = try String(contentsOf: url, encoding: .utf8)
-            markdownContent = content
+            setContent(content)
             currentFileURL = url
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
             startWatching(url: url)
         } catch {
-            markdownContent = "**Error reading file:** \(error.localizedDescription)"
+            setContent("**Error reading file:** \(error.localizedDescription)")
             currentFileURL = nil
             stopWatching()
         }

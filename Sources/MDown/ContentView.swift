@@ -6,8 +6,8 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if let content = appState.markdownContent {
-                MarkdownContentView(content: content)
+            if appState.markdownContent != nil {
+                MarkdownContentView()
             } else {
                 WelcomeView()
             }
