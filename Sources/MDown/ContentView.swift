@@ -5,13 +5,23 @@ struct ContentView: View {
     @State private var showThemePicker = false
 
     var body: some View {
-        Group {
-            if appState.markdownContent != nil {
-                MarkdownContentView()
-            } else {
-                WelcomeView()
+        ZStack(alignment: .top) {
+            Group {
+                if appState.markdownContent != nil {
+                    MarkdownContentView()
+                } else {
+                    WelcomeView()
+                }
+            }
+
+            if appState.isSearching && appState.markdownContent != nil {
+                SearchBarView()
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(1)
             }
         }
+        .animation(.easeInOut(duration: 0.15), value: appState.isSearching)
         .frame(minWidth: 500, minHeight: 400)
         .background(appState.windowBackground)
         .onDrop(of: [.fileURL], delegate: MarkdownDropDelegate(appState: appState))

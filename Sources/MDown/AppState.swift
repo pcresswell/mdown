@@ -35,6 +35,13 @@ final class AppState: ObservableObject {
     }
     @Published private(set) var activeTheme: Theme
 
+    // MARK: - Search State
+
+    @Published var isSearching = false
+    @Published var searchQuery = ""
+    @Published var searchMatches: [SearchMatch] = []
+    @Published var currentMatchIndex: Int = 0
+
     // MARK: - Computed
 
     var currentThemeDefinition: ThemeDefinition {
@@ -68,6 +75,61 @@ final class AppState: ObservableObject {
 
         let def = ThemeDefinitions.all.first { $0.id == themeID } ?? ThemeDefinitions.defaultLight
         self.activeTheme = MDownTheme.build(from: def, fontSize: fontSize)
+    }
+
+    // MARK: - Search
+
+    struct SearchMatch {
+        let chunkIndex: Int
+        let range: Range<String.Index>
+    }
+
+    func toggleSearch() {
+        isSearching.toggle()
+        if !isSearching {
+            searchQuery = ""
+            searchMatches = []
+            currentMatchIndex = 0
+        }
+    }
+
+    func performSearch() {
+        guard !searchQuery.isEmpty else {
+            searchMatches = []
+            currentMatchIndex = 0
+            return
+        }
+
+        var matches: [SearchMatch] = []
+        let query = searchQuery.lowercased()
+
+        for chunk in contentChunks {
+            let lower = chunk.content.lowercased()
+            var searchStart = lower.startIndex
+            while let range = lower.range(of: query, range: searchStart..<lower.endIndex) {
+                let originalRange = range.lowerBound..<range.upperBound
+                matches.append(SearchMatch(chunkIndex: chunk.id, range: originalRange))
+                searchStart = range.upperBound
+            }
+        }
+
+        searchMatches = matches
+        currentMatchIndex = matches.isEmpty ? 0 : 0
+    }
+
+    func nextMatch() {
+        guard !searchMatches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex + 1) % searchMatches.count
+    }
+
+    func previousMatch() {
+        guard !searchMatches.isEmpty else { return }
+        currentMatchIndex = (currentMatchIndex - 1 + searchMatches.count) % searchMatches.count
+    }
+
+    var currentMatchChunkID: Int? {
+        guard !searchMatches.isEmpty else { return nil }
+        return searchMatches[currentMatchIndex].chunkIndex
     }
 
     // MARK: - Theme

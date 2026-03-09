@@ -11,6 +11,10 @@ struct MDownApp: App {
                 FileMenuCommands()
             }
 
+            CommandGroup(replacing: .textEditing) {
+                FindMenuCommands()
+            }
+
             CommandMenu("Display") {
                 DisplayMenuCommands()
             }
@@ -46,6 +50,34 @@ struct FileMenuCommands: View {
             }
         }
         .keyboardShortcut("o", modifiers: [.command, .shift])
+    }
+}
+
+struct FindMenuCommands: View {
+    @FocusedObject private var appState: AppState?
+
+    var body: some View {
+        Button("Find...") {
+            if appState?.isSearching == true {
+                appState?.toggleSearch()
+            } else {
+                appState?.isSearching = true
+            }
+        }
+        .keyboardShortcut("f", modifiers: .command)
+        .disabled(appState?.markdownContent == nil)
+
+        Button("Find Next") {
+            appState?.nextMatch()
+        }
+        .keyboardShortcut("g", modifiers: .command)
+        .disabled(appState?.searchMatches.isEmpty ?? true)
+
+        Button("Find Previous") {
+            appState?.previousMatch()
+        }
+        .keyboardShortcut("g", modifiers: [.command, .shift])
+        .disabled(appState?.searchMatches.isEmpty ?? true)
     }
 }
 
