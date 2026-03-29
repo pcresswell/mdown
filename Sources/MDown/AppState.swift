@@ -1,4 +1,3 @@
-import MarkdownUI
 import SwiftUI
 
 final class AppState: ObservableObject {
@@ -16,32 +15,20 @@ final class AppState: ObservableObject {
     // MARK: - Published State
 
     @Published var markdownContent: String?
-    @Published private(set) var contentChunks: [MarkdownChunk] = []
     @Published var currentFileURL: URL?
     @Published var baseFontSize: CGFloat {
         didSet {
             UserDefaults.standard.set(Double(baseFontSize), forKey: Self.fontSizeKey)
-            rebuildTheme()
         }
     }
     @Published var selectedThemeID: String {
         didSet {
             UserDefaults.standard.set(selectedThemeID, forKey: Self.themeKey)
-            rebuildTheme()
         }
     }
     @Published var fullWidth: Bool {
         didSet { UserDefaults.standard.set(fullWidth, forKey: Self.fullWidthKey) }
     }
-    @Published private(set) var activeTheme: Theme
-
-    // MARK: - Search State
-
-    @Published var isSearching = false
-    @Published var searchQuery = ""
-    @Published var searchMatches: [SearchMatch] = []
-    @Published var currentMatchIndex: Int = 0
-
     // MARK: - Computed
 
     var currentThemeDefinition: ThemeDefinition {
@@ -72,70 +59,6 @@ final class AppState: ObservableObject {
         self.selectedThemeID = themeID
 
         self.fullWidth = UserDefaults.standard.bool(forKey: Self.fullWidthKey)
-
-        let def = ThemeDefinitions.all.first { $0.id == themeID } ?? ThemeDefinitions.defaultLight
-        self.activeTheme = MDownTheme.build(from: def, fontSize: fontSize)
-    }
-
-    // MARK: - Search
-
-    struct SearchMatch {
-        let chunkIndex: Int
-        let range: Range<String.Index>
-    }
-
-    func toggleSearch() {
-        isSearching.toggle()
-        if !isSearching {
-            searchQuery = ""
-            searchMatches = []
-            currentMatchIndex = 0
-        }
-    }
-
-    func performSearch() {
-        guard !searchQuery.isEmpty else {
-            searchMatches = []
-            currentMatchIndex = 0
-            return
-        }
-
-        var matches: [SearchMatch] = []
-        let query = searchQuery.lowercased()
-
-        for chunk in contentChunks {
-            let lower = chunk.content.lowercased()
-            var searchStart = lower.startIndex
-            while let range = lower.range(of: query, range: searchStart..<lower.endIndex) {
-                let originalRange = range.lowerBound..<range.upperBound
-                matches.append(SearchMatch(chunkIndex: chunk.id, range: originalRange))
-                searchStart = range.upperBound
-            }
-        }
-
-        searchMatches = matches
-        currentMatchIndex = matches.isEmpty ? 0 : 0
-    }
-
-    func nextMatch() {
-        guard !searchMatches.isEmpty else { return }
-        currentMatchIndex = (currentMatchIndex + 1) % searchMatches.count
-    }
-
-    func previousMatch() {
-        guard !searchMatches.isEmpty else { return }
-        currentMatchIndex = (currentMatchIndex - 1 + searchMatches.count) % searchMatches.count
-    }
-
-    var currentMatchChunkID: Int? {
-        guard !searchMatches.isEmpty else { return nil }
-        return searchMatches[currentMatchIndex].chunkIndex
-    }
-
-    // MARK: - Theme
-
-    private func rebuildTheme() {
-        activeTheme = MDownTheme.build(from: currentThemeDefinition, fontSize: baseFontSize)
     }
 
     // MARK: - Font Size
@@ -156,7 +79,6 @@ final class AppState: ObservableObject {
 
     private func setContent(_ content: String) {
         markdownContent = content
-        contentChunks = MarkdownChunker.chunk(content)
     }
 
     // MARK: - File Watching
@@ -210,12 +132,10 @@ final class AppState: ObservableObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
                 let content = try String(contentsOf: url, encoding: .utf8)
-                let chunks = MarkdownChunker.chunk(content)
                 DispatchQueue.main.async {
                     guard let self else { return }
                     if content != self.markdownContent {
                         self.markdownContent = content
-                        self.contentChunks = chunks
                     }
                 }
             } catch {

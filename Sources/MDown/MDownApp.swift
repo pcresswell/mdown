@@ -11,7 +11,7 @@ struct MDownApp: App {
                 FileMenuCommands()
             }
 
-            CommandGroup(replacing: .textEditing) {
+            CommandGroup(after: .textEditing) {
                 FindMenuCommands()
             }
 
@@ -58,26 +58,30 @@ struct FindMenuCommands: View {
 
     var body: some View {
         Button("Find...") {
-            if appState?.isSearching == true {
-                appState?.toggleSearch()
-            } else {
-                appState?.isSearching = true
-            }
+            postFindAction(tag: 1)
         }
         .keyboardShortcut("f", modifiers: .command)
         .disabled(appState?.markdownContent == nil)
 
         Button("Find Next") {
-            appState?.nextMatch()
+            postFindAction(tag: 2)
         }
         .keyboardShortcut("g", modifiers: .command)
-        .disabled(appState?.searchMatches.isEmpty ?? true)
+        .disabled(appState?.markdownContent == nil)
 
         Button("Find Previous") {
-            appState?.previousMatch()
+            postFindAction(tag: 3)
         }
         .keyboardShortcut("g", modifiers: [.command, .shift])
-        .disabled(appState?.searchMatches.isEmpty ?? true)
+        .disabled(appState?.markdownContent == nil)
+    }
+
+    private func postFindAction(tag: Int) {
+        NotificationCenter.default.post(
+            name: .mdownPerformFindAction,
+            object: nil,
+            userInfo: ["tag": tag]
+        )
     }
 }
 
