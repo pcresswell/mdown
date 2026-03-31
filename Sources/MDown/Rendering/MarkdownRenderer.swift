@@ -54,7 +54,8 @@ enum MarkdownRenderer {
             }
         }
 
-        cmark_parser_feed(parser, markdown, markdown.utf8.count)
+        let preprocessed = ensureBlockSeparation(markdown)
+        cmark_parser_feed(parser, preprocessed, preprocessed.utf8.count)
 
         guard let document = cmark_parser_finish(parser) else {
             return escapeHTML(markdown)
@@ -70,6 +71,36 @@ enum MarkdownRenderer {
         let html = String(cString: cString)
         free(cString)
         return html
+    }
+
+    /// Insert blank lines between consecutive non-empty lines that each start
+    /// with a numbered bold pattern (e.g. "**1. …**"), so cmark treats them as
+    /// separate paragraphs instead of merging them into one.
+    private static func ensureBlockSeparation(_ markdown: String) -> String {
+        let lines = markdown.components(separatedBy: "\n")
+        guard lines.count > 1 else { return markdown }
+
+        // Matches lines starting with optional whitespace then **<digit(s)>.
+        let numberedBoldPattern = #"^\s*\*\*\d+\."#
+        let regex = try! NSRegularExpression(pattern: numberedBoldPattern)
+
+        func isNumberedBold(_ line: String) -> Bool {
+            let range = NSRange(line.startIndex..., in: line)
+            return regex.firstMatch(in: line, range: range) != nil
+        }
+
+        var result = [lines[0]]
+        for i in 1..<lines.count {
+            let prev = lines[i - 1]
+            let curr = lines[i]
+            // Insert a blank line before a numbered-bold line when the
+            // previous line is non-empty and not already blank.
+            if isNumberedBold(curr) && !prev.trimmingCharacters(in: .whitespaces).isEmpty {
+                result.append("")
+            }
+            result.append(curr)
+        }
+        return result.joined(separator: "\n")
     }
 
     private static func escapeHTML(_ text: String) -> String {
