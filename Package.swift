@@ -17,7 +17,10 @@ let package = Package(
                 .product(name: "cmark-gfm", package: "swift-cmark"),
                 .product(name: "cmark-gfm-extensions", package: "swift-cmark"),
             ],
-            path: "Sources/MDown"
+            path: "Sources/MDown",
+            resources: [
+                .process("Bundled")
+            ]
         )
     ]
 )

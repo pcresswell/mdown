@@ -50,6 +50,19 @@ struct FileMenuCommands: View {
             }
         }
         .keyboardShortcut("o", modifiers: [.command, .shift])
+
+        Divider()
+
+        Button("Print...") {
+            guard let appState, let markdown = appState.markdownContent else { return }
+            PrintService.print(
+                markdown: markdown,
+                fileURL: appState.currentFileURL,
+                fontSize: appState.baseFontSize
+            )
+        }
+        .keyboardShortcut("p", modifiers: .command)
+        .disabled(appState?.markdownContent == nil)
     }
 }
 

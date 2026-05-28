@@ -5,10 +5,29 @@ import cmark_gfm_extensions
 
 enum MarkdownRenderer {
 
+    /// Async entry point — renders any mermaid fenced code blocks to images
+    /// before building the final attributed string.
+    @MainActor
+    static func render(
+        markdown: String, theme: ThemeDefinition, fontSize: CGFloat
+    ) async -> NSAttributedString {
+        var html = markdownToHTML(markdown)
+        html = await replaceMermaidBlocks(in: html, theme: theme)
+        return buildAttributedString(html: html, theme: theme, fontSize: fontSize)
+    }
+
+    /// Synchronous entry point — skips mermaid rendering (diagrams remain as
+    /// code blocks). Kept for callers that can't await.
     static func render(
         markdown: String, theme: ThemeDefinition, fontSize: CGFloat
     ) -> NSAttributedString {
         let html = markdownToHTML(markdown)
+        return buildAttributedString(html: html, theme: theme, fontSize: fontSize)
+    }
+
+    private static func buildAttributedString(
+        html: String, theme: ThemeDefinition, fontSize: CGFloat
+    ) -> NSAttributedString {
         let styledHTML = wrapWithCSS(html: html, theme: theme, fontSize: fontSize)
 
         guard let data = styledHTML.data(using: .utf8),
@@ -21,7 +40,7 @@ enum MarkdownRenderer {
                 documentAttributes: nil)
         else {
             return NSAttributedString(
-                string: markdown,
+                string: html,
                 attributes: [
                     .font: NSFont.systemFont(ofSize: fontSize),
                     .foregroundColor: NSColor(theme.text),
@@ -107,6 +126,76 @@ enum MarkdownRenderer {
         text.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    private static func unescapeHTMLEntities(_ text: String) -> String {
+        // Order matters: decode &amp; last so we don't double-decode.
+        text.replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&amp;", with: "&")
+    }
+
+    // MARK: - Mermaid
+
+    @MainActor
+    private static func replaceMermaidBlocks(in html: String, theme: ThemeDefinition) async -> String {
+        let pattern = #"(?s)<pre><code class="language-mermaid">(.*?)</code></pre>"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return html }
+        let ns = html as NSString
+        let matches = regex.matches(in: html, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return html }
+
+        let isDark = isDarkBackground(theme.background)
+
+        // Collect (range, renderedReplacement) pairs. Render sequentially — the
+        // MermaidRenderer serializes anyway and diagrams per document are few.
+        struct Replacement { let range: NSRange; let replacement: String }
+        var replacements: [Replacement] = []
+
+        for match in matches {
+            let range = match.range(at: 0)
+            let sourceRange = match.range(at: 1)
+            let rawSource = ns.substring(with: sourceRange)
+            let source = unescapeHTMLEntities(rawSource).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !source.isEmpty else { continue }
+
+            if let rendered = await MermaidRenderer.shared.render(source: source, isDark: isDark) {
+                let escapedURL = rendered.url.absoluteString
+                    .replacingOccurrences(of: "&", with: "&amp;")
+                    .replacingOccurrences(of: "\"", with: "&quot;")
+                let w = Int(rendered.logicalSize.width)
+                let h = Int(rendered.logicalSize.height)
+                replacements.append(Replacement(
+                    range: range,
+                    replacement: #"<p><img src="\#(escapedURL)" width="\#(w)" height="\#(h)" class="mermaid-diagram"></p>"#
+                ))
+            }
+            // If rendering fails, leave the original code block in place so the
+            // user still sees the source rather than nothing.
+        }
+
+        guard !replacements.isEmpty else { return html }
+
+        let mutable = NSMutableString(string: html)
+        for item in replacements.reversed() {
+            mutable.replaceCharacters(in: item.range, with: item.replacement)
+        }
+        let finalHTML = mutable as String
+        if ProcessInfo.processInfo.environment["MDOWN_DUMP_HTML"] != nil {
+            let path = (NSTemporaryDirectory() as NSString).appendingPathComponent("mdown-final.html")
+            try? finalHTML.write(toFile: path, atomically: true, encoding: .utf8)
+        }
+        return finalHTML
+    }
+
+    private static func isDarkBackground(_ color: Color) -> Bool {
+        let ns = NSColor(color).usingColorSpace(.sRGB) ?? NSColor(color)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        ns.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return luminance < 0.5
     }
 
     // MARK: - CSS theming
@@ -215,6 +304,7 @@ enum MarkdownRenderer {
             li.task-list-item { margin: 0.4em 0; }
             p { margin: 0.8em 0; }
             img { max-width: 100%; }
+            img.mermaid-diagram { display: block; margin: 1em auto; max-width: 100%; height: auto; }
             </style>
             </head>
             <body>

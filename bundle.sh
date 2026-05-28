@@ -50,5 +50,13 @@ if [ -f "Resources/MDown.icns" ]; then
     cp "Resources/MDown.icns" "${RESOURCES}/MDown.icns"
 fi
 
+# Copy SwiftPM-generated resource bundle (mermaid.min.js, etc.)
+BIN_DIR=$(swift build -c release --show-bin-path)
+for candidate in "${BIN_DIR}/MDown_MDown.bundle" "${BIN_DIR}/MDown_MDown.resources"; do
+    if [ -e "$candidate" ]; then
+        cp -R "$candidate" "${RESOURCES}/"
+    fi
+done
+
 echo "Done: ${APP_BUNDLE} — v${VERSION} (build ${BUILD_NUMBER})"
 echo "Launch with: open ${APP_BUNDLE}"
