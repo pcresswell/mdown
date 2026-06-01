@@ -53,7 +53,59 @@ enum MarkdownRenderer {
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.removeAttribute(.backgroundColor, range: fullRange)
 
+        makeTablesResponsive(mutable)
+
         return mutable
+    }
+
+    /// The HTML importer bakes each table column to an *absolute* pixel width
+    /// measured at the default 12px font. When we render at a larger font the
+    /// text no longer fits those rigid widths, so narrow columns break words
+    /// mid-character ("Calenda/r") and tall cells get clipped.
+    ///
+    /// Rewriting each column to a *percentage* of the table — and the table to
+    /// 100% of the text container — makes the layout responsive: columns keep
+    /// their relative proportions but expand to fill the view, so TextKit
+    /// re-wraps the text at the actual font instead of overflowing.
+    private static func makeTablesResponsive(_ string: NSMutableAttributedString) {
+        let fullRange = NSRange(location: 0, length: string.length)
+
+        // First pass: per table, find the widest absolute width seen for each
+        // column (cells in a column share a width, but read defensively).
+        var columnWidths: [ObjectIdentifier: [Int: CGFloat]] = [:]
+        var tables: [ObjectIdentifier: NSTextTable] = [:]
+        string.enumerateAttribute(.paragraphStyle, in: fullRange) { value, _, _ in
+            guard let style = value as? NSParagraphStyle else { return }
+            for block in style.textBlocks {
+                guard let cell = block as? NSTextTableBlock,
+                    cell.valueType(for: .width) == .absoluteValueType else { continue }
+                let id = ObjectIdentifier(cell.table)
+                tables[id] = cell.table
+                let current = columnWidths[id]?[cell.startingColumn] ?? 0
+                columnWidths[id, default: [:]][cell.startingColumn] =
+                    max(current, cell.value(for: .width))
+            }
+        }
+
+        guard !tables.isEmpty else { return }
+
+        // Second pass: convert each cell's width to a proportional percentage.
+        string.enumerateAttribute(.paragraphStyle, in: fullRange) { value, _, _ in
+            guard let style = value as? NSParagraphStyle else { return }
+            for block in style.textBlocks {
+                guard let cell = block as? NSTextTableBlock,
+                    cell.valueType(for: .width) == .absoluteValueType,
+                    let widths = columnWidths[ObjectIdentifier(cell.table)] else { continue }
+                let total = widths.values.reduce(0, +)
+                guard total > 0, let colWidth = widths[cell.startingColumn] else { continue }
+                cell.setValue(colWidth / total * 100, type: .percentageValueType, for: .width)
+            }
+        }
+
+        // Let each table fill the available text-container width.
+        for table in tables.values {
+            table.setValue(100, type: .percentageValueType, for: .width)
+        }
     }
 
     // MARK: - cmark-gfm parsing
