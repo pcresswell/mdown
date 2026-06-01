@@ -147,11 +147,16 @@ final class AppState: ObservableObject {
     // MARK: - File Loading
 
     func loadFile(url: URL) {
+        // Opening a new file in this window replaces the previous one.
+        if let previous = currentFileURL, previous.path != url.path {
+            SessionStore.shared.remove(previous)
+        }
         do {
             let content = try String(contentsOf: url, encoding: .utf8)
             setContent(content)
             currentFileURL = url
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            SessionStore.shared.record(url)
             startWatching(url: url)
         } catch {
             setContent("**Error reading file:** \(error.localizedDescription)")
@@ -162,5 +167,10 @@ final class AppState: ObservableObject {
 
     deinit {
         stopWatching()
+        // Forget this window's file when the user closes the window, but keep
+        // it when the app is quitting so the session can be restored.
+        if !AppDelegate.isTerminating, let url = currentFileURL {
+            SessionStore.shared.remove(url)
+        }
     }
 }

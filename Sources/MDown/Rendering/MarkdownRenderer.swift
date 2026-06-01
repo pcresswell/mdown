@@ -267,6 +267,7 @@ enum MarkdownRenderer {
         let tHeaderBg = cssColor(theme.tableHeaderBackground)
         let tStripeBg = cssColor(theme.tableStripeBackground)
         let hrColor = cssColor(theme.thematicBreakColor)
+        let hMargin = String(format: "%.2f", theme.headingTopMargin)
 
         return """
             <!DOCTYPE html>
@@ -284,7 +285,7 @@ enum MarkdownRenderer {
             }
             h1, h2, h3, h4, h5, h6 {
                 color: \(heading);
-                margin-top: 1.5em;
+                margin-top: \(hMargin)em;
                 margin-bottom: 0.75em;
                 line-height: 1.3;
             }

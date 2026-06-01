@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @StateObject private var appState = AppState()
     @State private var showThemePicker = false
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         Group {
@@ -38,12 +39,27 @@ struct ContentView: View {
         .environmentObject(appState)
         .focusedObject(appState)
         .onOpenURL { url in
+            // Launched/activated by opening a specific file — don't also
+            // restore the previous session on top of it.
+            SessionStore.shared.hasRestored = true
             appState.loadFile(url: url)
             NSApp.activate(ignoringOtherApps: true)
         }
         .onAppear {
             if let url = PendingFileManager.shared.claimURL() {
                 appState.loadFile(url: url)
+            } else if !SessionStore.shared.hasRestored {
+                SessionStore.shared.hasRestored = true
+                let urls = SessionStore.shared.restorableURLs()
+                // Defer one runloop so an `onOpenURL` launch wins the race.
+                DispatchQueue.main.async {
+                    guard appState.currentFileURL == nil, let first = urls.first else { return }
+                    appState.loadFile(url: first)
+                    for extra in urls.dropFirst() {
+                        PendingFileManager.shared.enqueue(extra)
+                        openWindow(id: "main")
+                    }
+                }
             }
         }
     }

@@ -1,7 +1,19 @@
 import SwiftUI
 
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// True once the app has begun terminating, so windows tearing down on
+    /// quit don't erase the restorable session.
+    static var isTerminating = false
+
+    func applicationWillTerminate(_ notification: Notification) {
+        AppDelegate.isTerminating = true
+    }
+}
+
 @main
 struct MDownApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     var body: some Scene {
         WindowGroup(id: "main") {
             ContentView()
