@@ -9,26 +9,26 @@ enum MarkdownRenderer {
     /// before building the final attributed string.
     @MainActor
     static func render(
-        markdown: String, theme: ThemeDefinition, fontSize: CGFloat
+        markdown: String, theme: ThemeDefinition, fontSize: CGFloat, density: CGFloat = 1.0
     ) async -> NSAttributedString {
         var html = markdownToHTML(markdown)
         html = await replaceMermaidBlocks(in: html, theme: theme)
-        return buildAttributedString(html: html, theme: theme, fontSize: fontSize)
+        return buildAttributedString(html: html, theme: theme, fontSize: fontSize, density: density)
     }
 
     /// Synchronous entry point — skips mermaid rendering (diagrams remain as
     /// code blocks). Kept for callers that can't await.
     static func render(
-        markdown: String, theme: ThemeDefinition, fontSize: CGFloat
+        markdown: String, theme: ThemeDefinition, fontSize: CGFloat, density: CGFloat = 1.0
     ) -> NSAttributedString {
         let html = markdownToHTML(markdown)
-        return buildAttributedString(html: html, theme: theme, fontSize: fontSize)
+        return buildAttributedString(html: html, theme: theme, fontSize: fontSize, density: density)
     }
 
     private static func buildAttributedString(
-        html: String, theme: ThemeDefinition, fontSize: CGFloat
+        html: String, theme: ThemeDefinition, fontSize: CGFloat, density: CGFloat
     ) -> NSAttributedString {
-        let styledHTML = wrapWithCSS(html: html, theme: theme, fontSize: fontSize)
+        let styledHTML = wrapWithCSS(html: html, theme: theme, fontSize: fontSize, density: density)
 
         guard let data = styledHTML.data(using: .utf8),
             let attrStr = NSAttributedString(
@@ -253,7 +253,7 @@ enum MarkdownRenderer {
     // MARK: - CSS theming
 
     private static func wrapWithCSS(
-        html: String, theme: ThemeDefinition, fontSize: CGFloat
+        html: String, theme: ThemeDefinition, fontSize: CGFloat, density: CGFloat
     ) -> String {
         let text = cssColor(theme.text)
         let bg = cssColor(theme.background)
@@ -267,7 +267,13 @@ enum MarkdownRenderer {
         let tHeaderBg = cssColor(theme.tableHeaderBackground)
         let tStripeBg = cssColor(theme.tableStripeBackground)
         let hrColor = cssColor(theme.thematicBreakColor)
-        let hMargin = String(format: "%.2f", theme.headingTopMargin)
+
+        // Density scales every vertical gap. `em(_:)` returns a base spacing
+        // multiplied by the density factor; line height is interpolated so the
+        // text never collapses at the tightest setting.
+        let d = density
+        func em(_ base: CGFloat) -> String { String(format: "%.3fem", base * d) }
+        let lineHeight = String(format: "%.2f", 1.25 + (d - 0.5) * (1.95 - 1.25) / (1.6 - 0.5))
 
         return """
             <!DOCTYPE html>
@@ -280,16 +286,16 @@ enum MarkdownRenderer {
                 font-size: \(fontSize)px;
                 color: \(text);
                 background-color: \(bg);
-                line-height: 1.6;
+                line-height: \(lineHeight);
                 word-wrap: break-word;
             }
             h1, h2, h3, h4, h5, h6 {
                 color: \(heading);
-                margin-top: \(hMargin)em;
-                margin-bottom: 0.75em;
+                margin-top: \(em(2.4));
+                margin-bottom: \(em(0.75));
                 line-height: 1.3;
             }
-            h1 { font-size: \(fontSize * 2.0)px; margin-top: 0.5em; }
+            h1 { font-size: \(fontSize * 2.0)px; margin-top: \(em(0.5)); }
             h2 { font-size: \(fontSize * 1.6)px; }
             h3 { font-size: \(fontSize * 1.3)px; }
             h4 { font-size: \(fontSize * 1.15)px; }
@@ -310,7 +316,7 @@ enum MarkdownRenderer {
                 border-radius: 6px;
                 overflow-x: auto;
                 line-height: 1.45;
-                margin: 1em 0;
+                margin: \(em(1.0)) 0;
             }
             pre code {
                 padding: 0;
@@ -320,21 +326,21 @@ enum MarkdownRenderer {
             blockquote {
                 border-left: 4px solid \(bqBorder);
                 background-color: \(bqBg);
-                margin: 1em 0;
+                margin: \(em(1.0)) 0;
                 padding: 0.75em 1em;
                 color: \(text);
                 opacity: 0.85;
             }
-            blockquote p { margin: 0.4em 0; }
+            blockquote p { margin: \(em(0.4)) 0; }
             hr {
                 border: none;
                 border-top: 2px solid \(hrColor);
-                margin: 1.5em 0;
+                margin: \(em(1.5)) 0;
             }
             table {
                 border-collapse: collapse;
                 width: auto;
-                margin: 1em 0;
+                margin: \(em(1.0)) 0;
             }
             th, td {
                 border: 1px solid \(tBorder);
@@ -348,14 +354,14 @@ enum MarkdownRenderer {
             tr:nth-child(even) td {
                 background-color: \(tStripeBg);
             }
-            ul, ol { padding-left: 2em; margin: 0.75em 0; }
-            li { margin: 0.4em 0; }
+            ul, ol { padding-left: 2em; margin: \(em(0.75)) 0; }
+            li { margin: \(em(0.4)) 0; }
             ul.contains-task-list {
                 list-style-type: none;
                 padding-left: 1em;
             }
-            li.task-list-item { margin: 0.4em 0; }
-            p { margin: 0.8em 0; }
+            li.task-list-item { margin: \(em(0.4)) 0; }
+            p { margin: \(em(0.8)) 0; }
             img { max-width: 100%; }
             img.mermaid-diagram { display: block; margin: 1em auto; max-width: 100%; height: auto; }
             </style>

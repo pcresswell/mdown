@@ -12,6 +12,7 @@ struct ContentView: View {
                     markdown: content,
                     theme: appState.currentThemeDefinition,
                     fontSize: appState.baseFontSize,
+                    density: appState.density,
                     fullWidth: appState.fullWidth
                 )
             } else {

@@ -9,6 +9,7 @@ struct SearchableMarkdownView: NSViewRepresentable {
     let markdown: String
     let theme: ThemeDefinition
     let fontSize: CGFloat
+    let density: CGFloat
     let fullWidth: Bool
 
     func makeCoordinator() -> Coordinator {
@@ -91,33 +92,37 @@ struct SearchableMarkdownView: NSViewRepresentable {
         let needsUpdate = contentHash != coordinator.lastContentHash
             || theme.id != coordinator.lastThemeID
             || fontSize != coordinator.lastFontSize
+            || density != coordinator.lastDensity
 
         if needsUpdate {
             coordinator.lastContentHash = contentHash
             coordinator.lastThemeID = theme.id
             coordinator.lastFontSize = fontSize
+            coordinator.lastDensity = density
 
             // Show the mermaid-free pass immediately so the user sees text
             // while diagrams are being rasterized.
             let sync = MarkdownRenderer.render(
-                markdown: markdown, theme: theme, fontSize: fontSize
+                markdown: markdown, theme: theme, fontSize: fontSize, density: density
             )
             coordinator.mermaidOverlays.clear()
             textView.textStorage?.setAttributedString(sync)
 
             coordinator.renderTask?.cancel()
-            let snapshot = (markdown: markdown, theme: theme, fontSize: fontSize)
+            let snapshot = (markdown: markdown, theme: theme, fontSize: fontSize, density: density)
             let task = Task { @MainActor [weak coordinator, weak textView] in
                 let full = await MarkdownRenderer.render(
                     markdown: snapshot.markdown,
                     theme: snapshot.theme,
-                    fontSize: snapshot.fontSize
+                    fontSize: snapshot.fontSize,
+                    density: snapshot.density
                 )
                 guard !Task.isCancelled,
                     let coordinator, let textView,
                     coordinator.lastContentHash == snapshot.markdown.hashValue,
                     coordinator.lastThemeID == snapshot.theme.id,
-                    coordinator.lastFontSize == snapshot.fontSize
+                    coordinator.lastFontSize == snapshot.fontSize,
+                    coordinator.lastDensity == snapshot.density
                 else { return }
                 textView.textStorage?.setAttributedString(full)
                 coordinator.mermaidOverlays.rebuild()
@@ -143,6 +148,7 @@ struct SearchableMarkdownView: NSViewRepresentable {
         var lastContentHash: Int = 0
         var lastThemeID = ""
         var lastFontSize: CGFloat = 0
+        var lastDensity: CGFloat = -1
         var renderTask: Task<Void, Never>?
         let mermaidOverlays = MermaidOverlayController()
 

@@ -8,9 +8,14 @@ final class AppState: ObservableObject {
     static let fontSizeStep: CGFloat = 2
     static let fontSizeDefault: CGFloat = 16
 
+    // Content density (spacing) range. Higher = more spacious.
+    static let densityMin: CGFloat = 0.5
+    static let densityMax: CGFloat = 1.6
+
     private static let themeKey = "selectedThemeID"
     private static let fontSizeKey = "baseFontSize"
     private static let fullWidthKey = "fullWidth"
+    private static let densityKeyPrefix = "density."
 
     // MARK: - Published State
 
@@ -24,10 +29,20 @@ final class AppState: ObservableObject {
     @Published var selectedThemeID: String {
         didSet {
             UserDefaults.standard.set(selectedThemeID, forKey: Self.themeKey)
+            // Density is per-theme: switching themes loads that theme's density.
+            density = Self.loadDensity(for: selectedThemeID)
         }
     }
     @Published var fullWidth: Bool {
         didSet { UserDefaults.standard.set(fullWidth, forKey: Self.fullWidthKey) }
+    }
+    /// Per-theme content density (spacing multiplier). Persisted keyed by the
+    /// current theme id, so each theme remembers its own setting.
+    @Published var density: CGFloat {
+        didSet {
+            UserDefaults.standard.set(
+                Double(density), forKey: Self.densityKeyPrefix + selectedThemeID)
+        }
     }
     // MARK: - Computed
 
@@ -59,6 +74,21 @@ final class AppState: ObservableObject {
         self.selectedThemeID = themeID
 
         self.fullWidth = UserDefaults.standard.bool(forKey: Self.fullWidthKey)
+
+        self.density = Self.loadDensity(for: themeID)
+    }
+
+    /// The user's saved density for a theme, or the theme's baseline default.
+    private static func loadDensity(for themeID: String) -> CGFloat {
+        if let saved = UserDefaults.standard.object(forKey: densityKeyPrefix + themeID) as? Double {
+            return min(max(CGFloat(saved), densityMin), densityMax)
+        }
+        let theme = ThemeDefinitions.all.first { $0.id == themeID } ?? ThemeDefinitions.defaultLight
+        return theme.defaultDensity
+    }
+
+    func resetDensity() {
+        density = currentThemeDefinition.defaultDensity
     }
 
     // MARK: - Font Size

@@ -55,6 +55,49 @@ struct ThemePickerView: View {
                 .buttonStyle(.borderless)
                 .disabled(appState.baseFontSize >= AppState.fontSizeMax)
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Density")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(action: { appState.resetDensity() }) {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Reset to this theme's default")
+                }
+
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up.and.down.text.horizontal")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help("More compressed")
+                    // Slider runs spacious → compressed left-to-right, so the
+                    // value is inverted: dragging right tightens the layout.
+                    Slider(
+                        value: Binding(
+                            get: { AppState.densityMax - (appState.density - AppState.densityMin) },
+                            set: { appState.density = AppState.densityMax - ($0 - AppState.densityMin) }
+                        ),
+                        in: AppState.densityMin...AppState.densityMax
+                    )
+                    Image(systemName: "arrow.down.and.line.horizontal.and.arrow.up")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .help("Less compressed")
+                }
+                HStack {
+                    Text("Spacious")
+                    Spacer()
+                    Text("Compact")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
         }
         .padding(16)
         .frame(width: 280)

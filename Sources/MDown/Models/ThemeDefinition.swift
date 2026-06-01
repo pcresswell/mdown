@@ -23,10 +23,11 @@ struct ThemeDefinition: Identifiable, Equatable {
     let thematicBreakColor: Color
 
     // Layout
-    /// Vertical space above section headings (h2–h6), in `em` units. Larger
-    /// values give more breathing room between sections. Per-theme so themes
-    /// can tune their own density; defaults to a roomy value.
-    var headingTopMargin: CGFloat = 2.4
+    /// Baseline content density: a multiplier (≈0.5 tight … 1.6 spacious) that
+    /// scales all vertical spacing — line height, paragraph, heading, list and
+    /// blockquote margins. Per-theme, and overridable by the user via the
+    /// density slider in the theme window (see `AppState.density`).
+    var defaultDensity: CGFloat = 1.0
 
     // Preview swatch colors (shown in theme picker cards)
     var swatchColors: [Color] {
