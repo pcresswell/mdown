@@ -53,9 +53,41 @@ enum MarkdownRenderer {
         let fullRange = NSRange(location: 0, length: mutable.length)
         mutable.removeAttribute(.backgroundColor, range: fullRange)
 
-        makeTablesResponsive(mutable)
+        makeTablesResponsive(mutable, borderColor: NSColor(theme.tableBorder))
+        bindHeadingsToBody(mutable, baseFontSize: fontSize, density: density)
 
         return mutable
+    }
+
+    /// The HTML importer ignores `margin-top` on every element (it never sets
+    /// `paragraphSpacingBefore`), and because margins are `em`-relative to each
+    /// element's own font, a heading's large font makes its `margin-bottom`
+    /// render *bigger* than the gap above it — so headings end up visually
+    /// attached to the preceding section instead of their own body.
+    ///
+    /// Override the spacing directly: a generous gap *before* a heading and a
+    /// tight gap *after*, so each heading bonds to the content it introduces.
+    private static func bindHeadingsToBody(
+        _ string: NSMutableAttributedString, baseFontSize: CGFloat, density: CGFloat
+    ) {
+        // Heading font sizes are >= 1.15x the base (h1–h4); body text is 1.0x.
+        let headingThreshold = baseFontSize * 1.12
+        let spaceAbove = baseFontSize * 1.1 * density
+        let spaceBelow = baseFontSize * 0.32 * density
+
+        let fullRange = NSRange(location: 0, length: string.length)
+        string.enumerateAttribute(.paragraphStyle, in: fullRange) { value, range, _ in
+            guard let style = value as? NSParagraphStyle, style.textBlocks.isEmpty,
+                let font = string.attribute(.font, at: range.location, effectiveRange: nil) as? NSFont,
+                font.pointSize >= headingThreshold
+            else { return }
+
+            let updated = style.mutableCopy() as! NSMutableParagraphStyle
+            updated.paragraphSpacing = spaceBelow
+            // Don't push the first block (the document title) down from the top.
+            updated.paragraphSpacingBefore = range.location == 0 ? 0 : spaceAbove
+            string.addAttribute(.paragraphStyle, value: updated, range: range)
+        }
     }
 
     /// The HTML importer bakes each table column to an *absolute* pixel width
@@ -67,7 +99,15 @@ enum MarkdownRenderer {
     /// 100% of the text container — makes the layout responsive: columns keep
     /// their relative proportions but expand to fill the view, so TextKit
     /// re-wraps the text at the actual font instead of overflowing.
-    private static func makeTablesResponsive(_ string: NSMutableAttributedString) {
+    ///
+    /// The importer also renders each cell's `border-collapse` border
+    /// independently, producing patchy, misaligned edges. We replace them with
+    /// a uniform single-line grid: every cell draws its right and bottom edge,
+    /// and the first column/row adds the left/top edge — so shared edges aren't
+    /// doubled and the outer frame is complete.
+    private static func makeTablesResponsive(
+        _ string: NSMutableAttributedString, borderColor: NSColor
+    ) {
         let fullRange = NSRange(location: 0, length: string.length)
 
         // First pass: per table, find the widest absolute width seen for each
@@ -89,16 +129,31 @@ enum MarkdownRenderer {
 
         guard !tables.isEmpty else { return }
 
-        // Second pass: convert each cell's width to a proportional percentage.
+        // Second pass: convert each cell's width to a proportional percentage
+        // and normalize its borders.
         string.enumerateAttribute(.paragraphStyle, in: fullRange) { value, _, _ in
             guard let style = value as? NSParagraphStyle else { return }
             for block in style.textBlocks {
-                guard let cell = block as? NSTextTableBlock,
-                    cell.valueType(for: .width) == .absoluteValueType,
-                    let widths = columnWidths[ObjectIdentifier(cell.table)] else { continue }
-                let total = widths.values.reduce(0, +)
-                guard total > 0, let colWidth = widths[cell.startingColumn] else { continue }
-                cell.setValue(colWidth / total * 100, type: .percentageValueType, for: .width)
+                guard let cell = block as? NSTextTableBlock else { continue }
+
+                if cell.valueType(for: .width) == .absoluteValueType,
+                    let widths = columnWidths[ObjectIdentifier(cell.table)] {
+                    let total = widths.values.reduce(0, +)
+                    if total > 0, let colWidth = widths[cell.startingColumn] {
+                        cell.setValue(colWidth / total * 100, type: .percentageValueType, for: .width)
+                    }
+                }
+
+                cell.setBorderColor(borderColor)
+                let edges: [(NSRectEdge, Bool)] = [
+                    (.maxX, true),                          // right: always
+                    (.maxY, true),                          // bottom: always
+                    (.minX, cell.startingColumn == 0),      // left: first column only
+                    (.minY, cell.startingRow == 0),         // top: first row only
+                ]
+                for (edge, draw) in edges {
+                    cell.setWidth(draw ? 1 : 0, type: .absoluteValueType, for: .border, edge: edge)
+                }
             }
         }
 
