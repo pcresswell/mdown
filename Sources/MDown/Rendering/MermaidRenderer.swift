@@ -24,12 +24,31 @@ final class MermaidRenderer {
         tempDir = fm.temporaryDirectory.appendingPathComponent("mdown-mermaid", isDirectory: true)
         try? fm.createDirectory(at: tempDir, withIntermediateDirectories: true)
 
-        if let url = Bundle.module.url(forResource: "mermaid.min", withExtension: "js"),
-            let js = try? String(contentsOf: url, encoding: .utf8) {
-            mermaidJS = js
-        } else {
-            mermaidJS = nil
+        mermaidJS = Self.loadMermaidJS()
+    }
+
+    /// Locate `mermaid.min.js` without touching `Bundle.module`, whose
+    /// synthesized accessor calls `fatalError` if the resource bundle can't be
+    /// found — which crashed the Homebrew build (the bundle lives in the app's
+    /// Resources, a location SwiftPM's accessor didn't probe). Search the real
+    /// install locations and return nil gracefully if the script is absent, so
+    /// Mermaid simply degrades to showing the code block.
+    private static func loadMermaidJS() -> String? {
+        let bundleName = "MDown_MDown.bundle"
+        var dirs: [URL] = []
+        if let resources = Bundle.main.resourceURL {
+            dirs.append(resources)                                   // flat in Resources
+            dirs.append(resources.appendingPathComponent(bundleName)) // app: Resources/MDown_MDown.bundle
         }
+        if let exeDir = Bundle.main.executableURL?.deletingLastPathComponent() {
+            dirs.append(exeDir)
+            dirs.append(exeDir.appendingPathComponent(bundleName))    // CLI: bin/MDown_MDown.bundle
+        }
+        for dir in dirs {
+            let url = dir.appendingPathComponent("mermaid.min.js")
+            if let js = try? String(contentsOf: url, encoding: .utf8) { return js }
+        }
+        return nil
     }
 
     /// Render the given Mermaid source and return a file URL to the resulting PNG.
