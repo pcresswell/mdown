@@ -1,0 +1,176 @@
+#!/bin/sh
+# --- BEGIN GITLEAKS SECRET SCAN (managed by shelterwood/scripts/install-gitleaks-hook.sh) ---
+# managed-block version: 2.1 (2026-06-11)
+# Staged-content safety gates — ALL checks run on STAGED content only (SI-02).
+# Order: secrets -> forbidden paths -> large files -> new-dep tripwire -> invisible Unicode.
+# Runs FIRST so a violation aborts the commit before any other hook logic.
+
+# [1/5] gitleaks secret scan — blocks commit on detection.
+# Guard: if gitleaks is not on PATH, warn but ALLOW the commit.
+if command -v gitleaks >/dev/null 2>&1; then
+  _sw_glcfg="$HOME/.config/gitleaks/config.toml"
+  _sw_glrc=0
+  if [ -f "$_sw_glcfg" ]; then
+    gitleaks git --pre-commit --staged --redact --no-banner --config "$_sw_glcfg" || _sw_glrc=$?
+  else
+    gitleaks git --pre-commit --staged --redact --no-banner || _sw_glrc=$?
+  fi
+  if [ "$_sw_glrc" -ne 0 ]; then
+    echo "" >&2
+    echo "gitleaks: potential secret in staged changes — COMMIT BLOCKED." >&2
+    echo "Review the finding above. Do NOT weaken the scan to bypass it." >&2
+    echo "If it is a verified false positive, allowlist it in ~/.config/gitleaks/config.toml" >&2
+    echo "(or the repo's .gitleaks.toml if no shared config is installed)." >&2
+    exit 1
+  fi
+else
+  echo "WARNING: gitleaks not installed — secret scan SKIPPED. brew install gitleaks" >&2
+fi
+
+# [2/5 + 3/5] forbidden-path guard + large-file guard (>1MB), one pass.
+_sw_fail=0
+_sw_files="$(git diff --cached --name-only --diff-filter=ACMR)"
+if [ -n "$_sw_files" ]; then
+  _sw_oifs=$IFS; IFS='
+'
+  for _sw_f in $_sw_files; do
+    _sw_b=${_sw_f##*/}
+    case "$_sw_b" in
+      .env.example|.env.test) : ;;
+      .env|.env.*|*.pem|*.key|id_rsa*|.DS_Store)
+        echo "pre-commit: forbidden file staged: $_sw_f — COMMIT BLOCKED." >&2
+        echo "  env files / private keys / .DS_Store never belong in a commit." >&2
+        echo "  Unstage it: git restore --staged -- '$_sw_f'" >&2
+        _sw_fail=1 ;;
+    esac
+    case "$_sw_f" in
+      .claude/history.jsonl|*/.claude/history.jsonl|.claude/projects/*|*/.claude/projects/*|.claude/todos/*|*/.claude/todos/*|.claude/file-history/*|*/.claude/file-history/*|.claude/shell-snapshots/*|*/.claude/shell-snapshots/*|.claude/paste-cache/*|*/.claude/paste-cache/*)
+        echo "pre-commit: Claude runtime state staged: $_sw_f — COMMIT BLOCKED." >&2
+        echo "  .claude/ session state (transcripts/history/todos) leaks prompts and paths." >&2
+        echo "  Unstage it: git restore --staged -- '$_sw_f'" >&2
+        _sw_fail=1 ;;
+    esac
+    _sw_size="$(git cat-file -s ":$_sw_f" 2>/dev/null || echo 0)"
+    # Text-based tracker artifacts (bd JSONL exports, tracked dolt internals)
+    # legitimately exceed 1MB — give them a dedicated 10MB ceiling instead of
+    # a full exemption so a runaway file is still caught.
+    _sw_limit=1048576 _sw_limit_h=1MB
+    case "$_sw_f" in
+      .beads/*.jsonl|*/.beads/*.jsonl|.beads/embeddeddolt/*|*/.beads/embeddeddolt/*)
+        _sw_limit=10485760 _sw_limit_h=10MB ;;
+    esac
+    if [ "${_sw_size:-0}" -gt "$_sw_limit" ]; then
+      echo "pre-commit: staged file exceeds $_sw_limit_h: $_sw_f ($_sw_size bytes) — COMMIT BLOCKED." >&2
+      echo "  Large/binary artifacts don't belong in git (auto-push makes this irreversible)." >&2
+      echo "  Unstage it: git restore --staged -- '$_sw_f'" >&2
+      _sw_fail=1
+    fi
+  done
+  IFS=$_sw_oifs
+fi
+if [ "$_sw_fail" -ne 0 ]; then exit 1; fi
+
+# [4/5] new-dependency tripwire (slopsquatting defence — ~20% of AI-generated
+# code references nonexistent packages). WARN interactively; SILAS_UNATTENDED=1 BLOCKS.
+_sw_newdeps=""
+if [ -n "$_sw_files" ]; then
+  _sw_oifs=$IFS; IFS='
+'
+  for _sw_f in $_sw_files; do
+    _sw_b=${_sw_f##*/}
+    case "$_sw_b" in go.mod|package.json|requirements.txt|Gemfile) : ;; *) continue ;; esac
+    _sw_added="$(git diff --cached -U0 --no-ext-diff -- "$_sw_f" | grep '^+[^+]' | sed 's/^+//' || true)"
+    [ -n "$_sw_added" ] || continue
+    _sw_dep=""
+    case "$_sw_b" in
+      go.mod)           _sw_dep="$(printf '%s\n' "$_sw_added" | grep -E '^[[:space:]]*(require[[:space:]]+)?[A-Za-z0-9][^[:space:]]*\.[a-z][a-z]+(/[^[:space:]]+)+[[:space:]]+v[0-9]' || true)" ;;
+      package.json)     _sw_dep="$(printf '%s\n' "$_sw_added" | grep -E '^[[:space:]]*"[@A-Za-z0-9][^"]*"[[:space:]]*:[[:space:]]*"([~^><=]?[0-9*]|latest|next|workspace:|file:|link:|git|npm:|http)' || true)" ;;
+      requirements.txt) _sw_dep="$(printf '%s\n' "$_sw_added" | grep -E '^[A-Za-z0-9]' || true)" ;;
+      Gemfile)          _sw_dep="$(printf '%s\n' "$_sw_added" | grep -E '^[[:space:]]*gem[[:space:]]' || true)" ;;
+    esac
+    if [ -n "$_sw_dep" ]; then
+      _sw_newdeps="${_sw_newdeps}${_sw_f}:
+${_sw_dep}
+"
+    fi
+  done
+  IFS=$_sw_oifs
+fi
+if [ -n "$_sw_newdeps" ]; then
+  echo "" >&2
+  echo "=================================================================" >&2
+  echo "WARNING: NEW DEPENDENCIES STAGED — verify each name is a real," >&2
+  echo "intended package (AI agents hallucinate plausible package names;" >&2
+  echo "typosquats of those names are actively exploited):" >&2
+  printf '%s' "$_sw_newdeps" | sed 's/^/  /' >&2
+  echo "=================================================================" >&2
+  if [ "${SILAS_UNATTENDED:-}" = "1" ]; then
+    echo "SILAS_UNATTENDED=1: new dependencies need human review — COMMIT BLOCKED." >&2
+    echo "Unstage the manifest (git restore --staged -- <path>) or have Peter" >&2
+    echo "review and commit interactively." >&2
+    exit 1
+  fi
+fi
+
+# [5/5] invisible-Unicode guard — zero-width / bidi-control characters in staged
+# additions can hide prompt-injection payloads (auto-push = instant publish).
+# Byte-level UTF-8 match: U+200B-200D, U+FEFF (mid-file), U+202A-202E, U+2066-2069.
+if command -v perl >/dev/null 2>&1; then
+  _sw_uni="$(git diff --cached -U0 --no-ext-diff --diff-filter=ACMR 2>/dev/null | perl -ne '
+    if (m{^\+\+\+ b/(.*)$}) { $f = $1; next }
+    if (/^@@ [^+]*\+([0-9]+)/) { $ln = $1; next }
+    next if /^(---|index |diff --git|old mode|new mode|new file|deleted|similarity|rename|copy|Binary files)/;
+    if (/^\+/) {
+      $l = $_; $l =~ s/^\+//;
+      @hits = ();
+      push @hits, "zero-width (U+200B-200D)" if $l =~ /\xE2\x80[\x8B-\x8D]/;
+      push @hits, "bidi-control (U+202A-202E / U+2066-2069)" if $l =~ /\xE2\x80[\xAA-\xAE]|\xE2\x81[\xA6-\xA9]/;
+      $i = index($l, "\xEF\xBB\xBF");
+      push @hits, "U+FEFF zero-width no-break space" if $i > 0 || ($i == 0 && $ln > 1);
+      print "  $f:$ln: ", join(", ", @hits), "\n" if @hits;
+      $ln++;
+    }
+  ' 2>/dev/null)"
+  if [ -n "$_sw_uni" ]; then
+    echo "pre-commit: invisible Unicode in staged additions — COMMIT BLOCKED." >&2
+    printf '%s\n' "$_sw_uni" >&2
+    echo "  Zero-width/bidi characters can smuggle hidden instructions into" >&2
+    echo "  auto-published repos. Remove them, or unstage the file:" >&2
+    echo "  git restore --staged -- <path>" >&2
+    exit 1
+  fi
+fi
+# --- END GITLEAKS SECRET SCAN ---
+
+# --- BEGIN BEADS INTEGRATION v1.0.5 ---
+# This section is managed by beads. Do not remove these markers.
+if command -v bd >/dev/null 2>&1; then
+  export BD_GIT_HOOK=1
+  _bd_timeout=${BEADS_HOOK_TIMEOUT:-300}
+  _bd_used_perl=0
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$_bd_timeout" bd hooks run pre-commit "$@"
+    _bd_exit=$?
+  elif command -v gtimeout >/dev/null 2>&1; then
+    gtimeout "$_bd_timeout" bd hooks run pre-commit "$@"
+    _bd_exit=$?
+  elif command -v perl >/dev/null 2>&1; then
+    _bd_used_perl=1
+    perl -e 'alarm shift; exec @ARGV' "$_bd_timeout" bd hooks run pre-commit "$@"
+    _bd_exit=$?
+  else
+    echo >&2 "beads: hook 'pre-commit' running without timeout; install coreutils or perl to enable BEADS_HOOK_TIMEOUT"
+    bd hooks run pre-commit "$@"
+    _bd_exit=$?
+  fi
+  if [ $_bd_exit -eq 124 ] || { [ $_bd_used_perl -eq 1 ] && [ $_bd_exit -eq 142 ]; }; then
+    echo >&2 "beads: hook 'pre-commit' timed out after ${_bd_timeout}s — continuing without beads"
+    _bd_exit=0
+  fi
+  if [ $_bd_exit -eq 3 ]; then
+    echo >&2 "beads: database not initialized — skipping hook 'pre-commit'"
+    _bd_exit=0
+  fi
+  if [ $_bd_exit -ne 0 ]; then exit $_bd_exit; fi
+fi
+# --- END BEADS INTEGRATION v1.0.5 ---
