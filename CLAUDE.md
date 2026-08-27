@@ -71,13 +71,13 @@ There is no automated test suite; verify UI changes in the real app (build, inst
 
 `make install` is NOT a release. Users install via Homebrew (`brew tap pcresswell/tap && brew install mdown`), so a release is not done until the tap serves it. Every release:
 
-1. Bump `CFBundleShortVersionString` in `Resources/Info.plist`.
+1. In `Resources/Info.plist`, bump `CFBundleShortVersionString` and set `CFBundleVersion` to the commit count of the release commit itself (`git rev-list --count HEAD` + 1, since the release commit adds one). The number must live in the plist because the brew tarball has no `.git` to count; `bundle.sh` stamps it automatically for local dev builds.
 2. Commit ("<summary>; bump to X.Y") and push to `origin main`.
 3. Tag: `git tag -a vX.Y <sha> && git push origin vX.Y`.
 4. GitHub release: `gh release create vX.Y --title "MDown vX.Y" --notes "<what changed>"`.
 5. Update the tap: in `~/repos/homebrew-tap/Formula/mdown.rb`, set `url` to the vX.Y tarball and recompute `sha256` (`curl -sL <tarball-url> | shasum -a 256`). **Pull the tap first** — the local clone is often behind. Commit ("mdown X.Y") and push.
 6. Install locally the brew way: `brew update && brew upgrade mdown`, then `pkill -x MDown; rm -rf /Applications/MDown.app; ln -sf "$(brew --prefix mdown)/MDown.app" /Applications/MDown.app`.
-7. Verify by reading stamps, not exit codes: `brew list --versions mdown` and `CFBundleShortVersionString` from the resolved `/Applications/MDown.app/Contents/Info.plist` must both show X.Y.
+7. Verify by reading stamps, not exit codes: `brew list --versions mdown` and `CFBundleShortVersionString` from the resolved `/Applications/MDown.app/Contents/Info.plist` must both show X.Y, and `CFBundleVersion` there must equal `git rev-list --count vX.Y`.
 
 Skipping steps 3-5 leaves brew users on the old version while /Applications looks current — this happened for v1.11; don't repeat it.
 
