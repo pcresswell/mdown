@@ -60,18 +60,27 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+swift build      # debug build
+make install     # release build -> /Applications/MDown.app (kills + relaunches the app)
 ```
+
+There is no automated test suite; verify UI changes in the real app (build, install, drive the menus).
+
+## Releasing — the full checklist
+
+`make install` is NOT a release. Users install via Homebrew (`brew tap pcresswell/tap && brew install mdown`), so a release is not done until the tap serves it. Every release:
+
+1. Bump `CFBundleShortVersionString` in `Resources/Info.plist`.
+2. Commit ("<summary>; bump to X.Y") and push to `origin main`.
+3. Tag: `git tag -a vX.Y <sha> && git push origin vX.Y`.
+4. GitHub release: `gh release create vX.Y --title "MDown vX.Y" --notes "<what changed>"`.
+5. Update the tap: in `~/repos/homebrew-tap/Formula/mdown.rb`, set `url` to the vX.Y tarball and recompute `sha256` (`curl -sL <tarball-url> | shasum -a 256`). **Pull the tap first** — the local clone is often behind. Commit ("mdown X.Y") and push.
+6. Install locally the brew way: `brew update && brew upgrade mdown`, then `pkill -x MDown; rm -rf /Applications/MDown.app; ln -sf "$(brew --prefix mdown)/MDown.app" /Applications/MDown.app`.
+7. Verify by reading stamps, not exit codes: `brew list --versions mdown` and `CFBundleShortVersionString` from the resolved `/Applications/MDown.app/Contents/Info.plist` must both show X.Y.
+
+Skipping steps 3-5 leaves brew users on the old version while /Applications looks current — this happened for v1.11; don't repeat it.
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
-
-## Conventions & Patterns
-
-_Add your project-specific conventions here_
+SwiftUI + Swift Package Manager macOS Markdown reader (no Xcode project; bundled by `bundle.sh`). Entry point `Sources/MDown/MDownApp.swift` (menus live in its `.commands` block); per-window state in `AppState.swift`; file open/recents flow through `AppState.loadFile` + `NSDocumentController`; rendering in `Sources/MDown/Rendering/` (cmark-gfm + Mermaid).
