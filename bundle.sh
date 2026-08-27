@@ -7,16 +7,12 @@ APP_BUNDLE="${BUILD_DIR}/${APP_NAME}.app"
 CONTENTS="${APP_BUNDLE}/Contents"
 MACOS="${CONTENTS}/MacOS"
 RESOURCES="${CONTENTS}/Resources"
-VERSION_FILE=".build-number"
 
-# Auto-increment build number
-if [ -f "$VERSION_FILE" ]; then
-    BUILD_NUMBER=$(cat "$VERSION_FILE")
-    BUILD_NUMBER=$((BUILD_NUMBER + 1))
-else
-    BUILD_NUMBER=1
-fi
-echo "$BUILD_NUMBER" > "$VERSION_FILE"
+# Build number = git commit count (portfolio release standard). Falls back to
+# the CFBundleVersion already in Info.plist if this isn't a git checkout
+# (e.g. a source tarball with no .git, as used by the Homebrew formula).
+BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null) || \
+    BUILD_NUMBER=$(defaults read "$(pwd)/Resources/Info.plist" CFBundleVersion 2>/dev/null || echo "1")
 
 # Read version from Info.plist
 VERSION=$(defaults read "$(pwd)/Resources/Info.plist" CFBundleShortVersionString 2>/dev/null || echo "1.0")
