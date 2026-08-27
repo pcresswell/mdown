@@ -186,6 +186,7 @@ final class AppState: ObservableObject {
             setContent(content)
             currentFileURL = url
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            RecentDocuments.shared.refresh()
             SessionStore.shared.record(url)
             startWatching(url: url)
         } catch {

@@ -37,21 +37,32 @@ struct MDownApp: App {
 struct FileMenuCommands: View {
     @FocusedObject private var appState: AppState?
     @Environment(\.openWindow) private var openWindow
+    @ObservedObject private var recentDocuments = RecentDocuments.shared
 
     var body: some View {
         Button("Open...") {
             FileService.openFile { url in
                 if let url {
-                    if let appState {
-                        appState.loadFile(url: url)
-                    } else {
-                        PendingFileManager.shared.pendingURL = url
-                        openWindow(id: "main")
-                    }
+                    openInCurrentContext(url)
                 }
             }
         }
         .keyboardShortcut("o", modifiers: .command)
+
+        Menu("Open Recent") {
+            ForEach(recentDocuments.urls, id: \.self) { url in
+                Button(url.lastPathComponent) {
+                    openInCurrentContext(url)
+                }
+            }
+
+            Divider()
+
+            Button("Clear Menu") {
+                recentDocuments.clear()
+            }
+            .disabled(recentDocuments.urls.isEmpty)
+        }
 
         Button("Open in New Window...") {
             FileService.openFile { url in
@@ -75,6 +86,18 @@ struct FileMenuCommands: View {
         }
         .keyboardShortcut("p", modifiers: .command)
         .disabled(appState?.markdownContent == nil)
+    }
+
+    /// Opens a file the same way "Open..." does: into the focused window if
+    /// there is one, otherwise into a newly created window. Used by both the
+    /// Open panel and Open Recent entries so behavior stays identical.
+    private func openInCurrentContext(_ url: URL) {
+        if let appState {
+            appState.loadFile(url: url)
+        } else {
+            PendingFileManager.shared.pendingURL = url
+            openWindow(id: "main")
+        }
     }
 }
 
